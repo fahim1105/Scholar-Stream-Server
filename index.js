@@ -15,7 +15,7 @@ const port = process.env.PORT || 3000
 // Firebase admin SDK
 const admin = require("firebase-admin");
 
-const serviceAccount = require("path/to/serviceAccountKey.json");
+const serviceAccount = require("./scholarstream-firebase-admin-sdk.json");
 
 admin.initializeApp({
     credential: admin.credential.cert(serviceAccount)
@@ -66,6 +66,20 @@ async function run() {
         const reviewsCollection = db.collection('reviews');
         const usersCollection = db.collection('users');
 
+        // middleWare with database access >> admin before allowing admin activity
+        // Must be used after VerifyFirebaseToken middleWare
+        const verifyAdmin = async (req, res, next) => {
+            const email = req.decoded_email;
+            const query = { email };
+            const user = await usersCollection.findOne(query);
+
+            if (!user || user.role !== 'admin') {
+                res.send({ message: "Forbidden access" })
+            }
+
+            next()
+        }
+
         // API's here
 
         // User Related API's
@@ -87,18 +101,18 @@ async function run() {
             res.send(result);
         });
 
-        app.get('/users', async (req, res) => {
+        app.get('/users', VerifyFirebaseToken, verifyAdmin, async (req, res) => {
             const result = await usersCollection.find().toArray();
             res.send(result);
         });
 
-        app.get('/users/:email', async (req, res) => {
+        app.get('/users/:email', VerifyFirebaseToken, verifyAdmin, async (req, res) => {
             const email = req.params.email;
             const result = await usersCollection.findOne({ email });
             res.send(result);
         });
 
-        app.patch('/users/role/:id', async (req, res) => {
+        app.patch('/users/role/:id', VerifyFirebaseToken, verifyAdmin, async (req, res) => {
             const id = req.params.id;
             const { role } = req.body;
 
@@ -109,6 +123,17 @@ async function run() {
 
             res.send(result);
         });
+
+        app.delete('/users/:id', VerifyFirebaseToken, verifyAdmin, async (req, res) => {
+            const id = req.params.id;
+
+            const result = await usersCollection.deleteOne({
+                _id: new ObjectId(id)
+            });
+
+            res.send(result);
+        });
+
 
 
 
