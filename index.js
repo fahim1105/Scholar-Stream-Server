@@ -310,6 +310,54 @@ async function run() {
             res.send({ url: session.url });
         });
 
+        app.patch('/payment-success', async (req, res) => {
+            const { session_id } = req.query;
+
+            const session = await stripe.checkout.sessions.retrieve(session_id);
+
+            const transactionId = session.payment_intent;
+
+            // prevent duplicate
+            const exists = await paymentsCollection.findOne({ transactionId });
+            if (exists) {
+                return res.send({
+                    message: "Already recorded",
+                    transactionId
+                });
+            }
+
+            if (session.payment_status === "paid") {
+                const paymentDoc = {
+                    userEmail: session.customer_email,
+                    scholarshipId: session.metadata.scholarshipId,
+                    scholarshipName: session.metadata.scholarshipName,
+                    amount: session.amount_total / 100,
+                    currency: session.currency,
+                    transactionId,
+                    paymentStatus: "paid",
+                    paidAt: new Date()
+                };
+
+                await paymentsCollection.insertOne(paymentDoc);
+
+                // optional application save
+                await applicationsCollection.insertOne({
+                    userEmail: session.customer_email,
+                    scholarshipId: session.metadata.scholarshipId,
+                    appliedAt: new Date(),
+                    paymentStatus: "paid"
+                });
+
+                res.send({
+                    success: true,
+                    transactionId
+                });
+            } else {
+                res.send({ success: false });
+            }
+        });
+
+
 
 
         // Reviews Related API's
