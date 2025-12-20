@@ -125,6 +125,14 @@ async function run() {
 
             res.send(result);
         });
+        
+        // Get current logged-in user info
+        app.get('/users/me', VerifyFirebaseToken, async (req, res) => {
+            const email = req.decoded_email;
+            const user = await usersCollection.findOne({ email });
+            res.send(user);
+        });
+
 
         app.delete('/users/:id', VerifyFirebaseToken, verifyAdmin, async (req, res) => {
             const id = req.params.id;
@@ -310,53 +318,57 @@ async function run() {
             res.send({ url: session.url });
         });
 
-        app.patch('/payment-success', async (req, res) => {
-            const { session_id } = req.query;
 
-            const session = await stripe.checkout.sessions.retrieve(session_id);
+        app.patch('/scholarship-payment-success', async (req, res) => {
+            const sessionId = req.query.session_id;
+            const session = await stripe.checkout.sessions.retrieve(sessionId);
 
+            if (session.payment_status !== 'paid') {
+                return res.send({ success: false });
+            }
+
+            const scholarshipId = session.metadata.scholarshipId;
             const transactionId = session.payment_intent;
 
-            // prevent duplicate
-            const exists = await paymentsCollection.findOne({ transactionId });
+            // Prevent duplicate
+            const exists = await paymentCollection.findOne({ transactionId });
             if (exists) {
-                return res.send({
-                    message: "Already recorded",
-                    transactionId
-                });
+                return res.send({ message: "Already Paid" });
             }
 
-            if (session.payment_status === "paid") {
-                const paymentDoc = {
-                    userEmail: session.customer_email,
-                    scholarshipId: session.metadata.scholarshipId,
-                    scholarshipName: session.metadata.scholarshipName,
-                    amount: session.amount_total / 100,
-                    currency: session.currency,
-                    transactionId,
-                    paymentStatus: "paid",
-                    paidAt: new Date()
-                };
+            // 1️⃣ Save payment
+            await paymentCollection.insertOne({
+                scholarshipId,
+                scholarshipName: session.metadata.scholarshipName,
+                userEmail: session.customer_email,
+                amount: session.amount_total / 100,
+                transactionId,
+                paymentStatus: "paid",
+                paidAt: new Date()
+            });
 
-                await paymentsCollection.insertOne(paymentDoc);
+            // 2️⃣ Update scholarship
+            await scholarshipsCollection.updateOne(
+                { _id: new ObjectId(scholarshipId) },
+                {
+                    $push: {
+                        applications: {
+                            userEmail: session.customer_email,
+                            transactionId,
+                            amountPaid: session.amount_total / 100,
+                            paymentStatus: "paid",
+                            appliedAt: new Date()
+                        }
+                    },
+                    $inc: {
+                        appliedCount: 1,
+                        totalFeesCollected: session.amount_total / 100
+                    }
+                }
+            );
 
-                // optional application save
-                await applicationsCollection.insertOne({
-                    userEmail: session.customer_email,
-                    scholarshipId: session.metadata.scholarshipId,
-                    appliedAt: new Date(),
-                    paymentStatus: "paid"
-                });
-
-                res.send({
-                    success: true,
-                    transactionId
-                });
-            } else {
-                res.send({ success: false });
-            }
+            res.send({ success: true, transactionId });
         });
-
 
 
 
