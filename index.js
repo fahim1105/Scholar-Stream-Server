@@ -7,7 +7,7 @@ const app = express()
 
 require('dotenv').config()
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
-
+const stripe = require('stripe')(process.env.STRIPE_SECRET);
 
 const port = process.env.PORT || 3000
 
@@ -65,6 +65,7 @@ async function run() {
         const scholarshipsCollection = db.collection('scholarships');
         const reviewsCollection = db.collection('reviews');
         const usersCollection = db.collection('users');
+        const paymentCollection = db.collection('payments');
 
         // middleWare with database access >> admin before allowing admin activity
         // Must be used after VerifyFirebaseToken middleWare
@@ -106,10 +107,11 @@ async function run() {
             res.send(result);
         });
 
-        app.get('/users/:email', VerifyFirebaseToken, verifyAdmin, async (req, res) => {
+        app.get('/users/:email/role', VerifyFirebaseToken, verifyAdmin, async (req, res) => {
             const email = req.params.email;
-            const result = await usersCollection.findOne({ email });
-            res.send(result);
+            const query = { email: email };
+            const user = await usersCollection.findOne(query);
+            res.send({ role: user?.role || 'student' });
         });
 
         app.patch('/users/role/:id', VerifyFirebaseToken, verifyAdmin, async (req, res) => {
@@ -134,8 +136,47 @@ async function run() {
             res.send(result);
         });
 
+        // Analytics related api
+        app.get('/admin/analytics', VerifyFirebaseToken, verifyAdmin, async (req, res) => {
+            const totalUsers = await usersCollection.estimatedDocumentCount();
+            const totalScholarships = await scholarshipsCollection.estimatedDocumentCount();
 
+            const payments = await paymentsCollection.aggregate([
+                {
+                    $group: {
+                        _id: null,
+                        totalFees: { $sum: "$totalAmount" }
+                    }
+                }
+            ]).toArray();
 
+            res.send({
+                totalUsers,
+                totalScholarships,
+                totalFees: payments[0]?.totalFees || 0
+            });
+        });
+
+        // GET /admin/application-stats
+        app.get('/admin/application-stats', VerifyFirebaseToken, verifyAdmin, async (req, res) => {
+            const stats = await applicationsCollection.aggregate([
+                {
+                    $group: {
+                        _id: "$scholarshipCategory",
+                        count: { $sum: 1 }
+                    }
+                },
+                {
+                    $project: {
+                        _id: 0,
+                        category: "$_id",
+                        applications: "$count"
+                    }
+                }
+            ]).toArray();
+
+            res.send(stats);
+        });
 
         //    Scholarship Related API's
 
@@ -222,6 +263,45 @@ async function run() {
             );
 
             res.send(result);
+        });
+
+
+        // Payment Related API's
+
+        app.post('/create-checkout-session', VerifyFirebaseToken, async (req, res) => {
+            const { scholarshipId } = req.body;
+
+            
+
+            const amount =
+                (scholarship.applicationFees + scholarship.serviceCharge) * 100;
+
+            const session = await stripe.checkout.sessions.create({
+                payment_method_types: ['card'],
+                line_items: [
+                    {
+                        price_data: {
+                            currency: 'usd',
+                            unit_amount: amount,
+                            product_data: {
+                                name: scholarship.scholarshipName,
+                                description: scholarship.universityName
+                            }
+                        },
+                        quantity: 1
+                    }
+                ],
+                customer_email: req.decoded_email,
+                mode: 'payment',
+                metadata: {
+                    scholarshipId: scholarship._id.toString(),
+                    scholarshipName: scholarship.scholarshipName
+                },
+                success_url: `${process.env.SITE_DOMAIN}/dashboard/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+                cancel_url: `${process.env.SITE_DOMAIN}/dashboard/payment-cancelled`
+            });
+
+            res.send({ url: session.url });
         });
 
 
