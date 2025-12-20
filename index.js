@@ -125,7 +125,7 @@ async function run() {
 
             res.send(result);
         });
-        
+
         // Get current logged-in user info
         app.get('/users/me', VerifyFirebaseToken, async (req, res) => {
             const email = req.decoded_email;
@@ -370,6 +370,23 @@ async function run() {
             res.send({ success: true, transactionId });
         });
 
+        app.get('/payments', VerifyFirebaseToken, async (req, res) => {
+            const email = req.query.email;
+            const query = {};
+            // console.log('Header &&', req.headers)
+            if (email) {
+                query.userEmail = email;
+
+                // Check email address
+
+                if (email !== req.decoded_email) {
+                    return res.status(403).send({ message: "Forbidden access" })
+                }
+            }
+            const cursor = paymentCollection.find(query).sort({ paidAt: -1 });
+            const result = await cursor.toArray();
+            res.send(result)
+        })
 
 
         // Reviews Related API's
