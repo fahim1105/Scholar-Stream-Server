@@ -271,7 +271,13 @@ async function run() {
         app.post('/create-checkout-session', VerifyFirebaseToken, async (req, res) => {
             const { scholarshipId } = req.body;
 
-            
+            const scholarship = await scholarshipsCollection.findOne({
+                _id: new ObjectId(scholarshipId)
+            });
+
+            if (!scholarship) {
+                return res.status(404).send({ message: "Scholarship not found" });
+            }
 
             const amount =
                 (scholarship.applicationFees + scholarship.serviceCharge) * 100;
