@@ -203,10 +203,9 @@ async function run() {
 
         app.get('/scholarships', async (req, res) => {
             try {
-                const { search, category, subject, degree } = req.query;
+                const { search, category, subject, degree, page = 1, limit = 17 } = req.query;
 
                 const query = {};
-
                 if (search) {
                     query.$or = [
                         { scholarshipName: { $regex: search, $options: 'i' } },
@@ -214,20 +213,27 @@ async function run() {
                         { degree: { $regex: search, $options: 'i' } },
                     ];
                 }
+                if (category) query.scholarshipCategory = category;
+                if (subject) query.subjectCategory = subject;
+                if (degree) query.degree = degree;
 
-                if (category) {
-                    query.scholarshipCategory = category;
-                }
-                if (subject) {
-                    query.subjectCategory = subject;
-                }
-                if (degree) {
-                    query.degree = degree;
-                }
+                // প্যাগিনেশনের হিসাব
+                const skip = (parseInt(page) - 1) * parseInt(limit);
 
-                const cursor = scholarshipsCollection.find(query)
-                const result = await cursor.toArray();
-                res.send(result);
+                // মোট কয়টি ডেটা আছে তা বের করা (ফ্রন্টএন্ডে বাটন দেখানোর জন্য লাগবে)
+                const totalItems = await scholarshipsCollection.countDocuments(query);
+
+                const result = await scholarshipsCollection.find(query)
+                    .skip(skip)
+                    .limit(parseInt(limit))
+                    .toArray();
+
+                res.send({
+                    scholarships: result,
+                    totalItems,
+                    totalPages: Math.ceil(totalItems / limit),
+                    currentPage: parseInt(page)
+                });
             } catch (error) {
                 res.status(500).send({ message: "Failed to load scholarships" });
             }
