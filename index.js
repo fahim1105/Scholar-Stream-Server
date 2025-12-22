@@ -579,18 +579,7 @@ async function run() {
 
         // Reviews Related API's
 
-        // app.get('/reviews', VerifyFirebaseToken, async (req, res) => {
-        //     const email = req.decoded_email; // টোকেন থেকে আসা ইমেইল
-
-        //     const query = { reviewerEmail: email };
-
-        //     const reviews = await reviewsCollection
-        //         .find(query)
-        //         .sort({ createdAt: -1 })
-        //         .toArray();
-
-        //     res.send(reviews);
-        // });
+     
         app.get('/reviews', VerifyFirebaseToken, async (req, res) => {
             const email = req.decoded_email; // টোকেন থেকে পাওয়া ইমেইল
 
