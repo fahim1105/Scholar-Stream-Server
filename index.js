@@ -294,51 +294,6 @@ async function run() {
 
 
         // Payment Related API's
-
-        // no 1
-
-        // app.post('/create-checkout-session', VerifyFirebaseToken, async (req, res) => {
-        //     const { scholarshipId } = req.body;
-
-        //     const scholarship = await scholarshipsCollection.findOne({
-        //         _id: new ObjectId(scholarshipId)
-        //     });
-
-        //     if (!scholarship) {
-        //         return res.status(404).send({ message: "Scholarship not found" });
-        //     }
-
-        //     const amount =
-        //         (scholarship.applicationFees + scholarship.serviceCharge) * 100;
-
-        //     const session = await stripe.checkout.sessions.create({
-        //         payment_method_types: ['card'],
-        //         line_items: [
-        //             {
-        //                 price_data: {
-        //                     currency: 'usd',
-        //                     unit_amount: amount,
-        //                     product_data: {
-        //                         name: scholarship.scholarshipName,
-        //                         description: scholarship.universityName
-        //                     }
-        //                 },
-        //                 quantity: 1
-        //             }
-        //         ],
-        //         customer_email: req.decoded_email,
-        //         mode: 'payment',
-        //         metadata: {
-        //             scholarshipId: scholarship._id.toString(),
-        //             scholarshipName: scholarship.scholarshipName
-        //         },
-        //         success_url: `${process.env.SITE_DOMAIN}/dashboard/payment-success?session_id={CHECKOUT_SESSION_ID}`,
-        //         cancel_url: `${process.env.SITE_DOMAIN}/dashboard/payment-cancelled`
-        //     });
-
-        //     res.send({ url: session.url });
-        // });
-
         // no 2
 
         app.post('/create-checkout-session', VerifyFirebaseToken, async (req, res) => {
@@ -394,7 +349,9 @@ async function run() {
                     metadata: {
                         applicationId: applicationId.toString(), // পেমেন্ট সাকসেস রুটে এটি লাগবে
                         scholarshipId: scholarshipId.toString(),
-                        scholarshipName: scholarship.scholarshipName
+                        scholarshipName: scholarship.scholarshipName,
+                        universityName: scholarship.universityName, // এটি যোগ করা হয়েছে
+                        userEmail: userEmail || req.decoded_email    // এটি যোগ করা হয়েছে
                     },
                     success_url: `${process.env.SITE_DOMAIN}/dashboard/payment-success?session_id={CHECKOUT_SESSION_ID}`,
                     cancel_url: `${process.env.SITE_DOMAIN}/dashboard/payment-cancelled`
@@ -407,141 +364,67 @@ async function run() {
             }
         });
 
-        // no 1
-        // app.patch('/scholarship-payment-success', async (req, res) => {
-        //     const sessionId = req.query.session_id;
-        //     const session = await stripe.checkout.sessions.retrieve(sessionId);
 
-        //     if (session.payment_status !== 'paid') {
-        //         return res.send({ success: false });
-        //     }
-
-        //     const scholarshipId = session.metadata.scholarshipId;
-        //     const transactionId = session.payment_intent;
-
-        //     // Prevent duplicate
-        //     const exists = await paymentCollection.findOne({ transactionId });
-        //     if (exists) {
-        //         return res.send({ message: "Already Paid" });
-        //     }
-
-        //     // 1️⃣ Save payment
-        //     await paymentCollection.insertOne({
-        //         scholarshipId,
-        //         scholarshipName: session.metadata.scholarshipName,
-        //         userEmail: session.customer_email,
-        //         amount: session.amount_total / 100,
-        //         transactionId,
-        //         paymentStatus: "paid",
-        //         paidAt: new Date(),
-        //     });
-
-        //     // 2️⃣ Update scholarship
-        //     await scholarshipsCollection.updateOne(
-        //         { _id: new ObjectId(scholarshipId) },
-        //         {
-        //             $push: {
-        //                 applications: {
-        //                     userEmail: session.customer_email,
-        //                     transactionId,
-        //                     amountPaid: session.amount_total / 100,
-        //                     paymentStatus: "paid",
-        //                     appliedAt: new Date()
-        //                 }
-        //             },
-        //             $inc: {
-        //                 appliedCount: 1,
-        //                 totalFeesCollected: session.amount_total / 100
-        //             }
-        //         }
-        //     );
-
-        //     res.send({ success: true, transactionId });
-        // });
-
-        // no 2 
-
-        // app.patch('/scholarship-payment-success', async (req, res) => {
-        //     const sessionId = req.query.session_id;
-        //     const session = await stripe.checkout.sessions.retrieve(sessionId);
-
-        //     if (session.payment_status !== 'paid') {
-        //         return res.send({ success: false });
-        //     }
-
-        //     const { scholarshipId, scholarshipName, userName, universityName } = session.metadata;
-        //     console.log(session)
-        //     const transactionId = session.payment_intent;
-
-        //     const exists = await applicationsCollection.findOne({ transactionId });
-        //     if (exists) return res.send({ message: "Already Processed" });
-
-        //     // ১. আলাদা applicationsCollection এ ডেটা ইনসার্ট করা
-        //     const applicationData = {
-        //         scholarshipId: new ObjectId(scholarshipId),
-        //         scholarshipName,
-        //         universityName,
-        //         userName, // from metadata
-        //         userEmail: session.student_email,
-        //         amountPaid: session.amount_total / 100,
-        //         transactionId,
-        //         paymentStatus: "paid",
-        //         status: "pending", // Default status
-        //         appliedAt: new Date(),
-        //         feedback: ""
-        //     };
-
-        //     await applicationsCollection.insertOne(applicationData);
-
-        //     // ২. আগের মতো স্কলারশিপ কাউন্ট আপডেট করা (ঐচ্ছিক কিন্তু ভালো)
-        //     await scholarshipsCollection.updateOne(
-        //         { _id: new ObjectId(scholarshipId) },
-        //         { $inc: { appliedCount: 1 } }
-        //     );
-
-        //     res.send({ success: true, transactionId });
-        // });
 
         // no 3
+
         app.patch('/scholarship-payment-success', async (req, res) => {
-            const sessionId = req.query.session_id;
-            const session = await stripe.checkout.sessions.retrieve(sessionId);
+            try {
+                const sessionId = req.query.session_id;
+                const session = await stripe.checkout.sessions.retrieve(sessionId);
 
-            if (session.payment_status === 'paid') {
-                const { applicationId, scholarshipId, scholarshipName } = session.metadata;
-                const transactionId = session.payment_intent;
-                const amountPaid = session.amount_total / 100;
+                if (session.payment_status === 'paid') {
+                    // ১. মেটাডাটা থেকে সব তথ্য নেওয়া (নিশ্চিত করুন create-checkout-session এ এগুলো পাঠিয়েছেন)
+                    const { applicationId, scholarshipId, scholarshipName, universityName, userEmail } = session.metadata;
+                    const transactionId = session.payment_intent;
+                    const amountPaid = session.amount_total / 100;
 
-                // ১. ওই নির্দিষ্ট অ্যাপ্লিকেশনটি আপডেট করুন
-                await applicationsCollection.updateOne(
-                    { _id: new ObjectId(applicationId) },
-                    {
-                        $set: {
-                            paymentStatus: "paid",
-                            transactionId: transactionId,
-                            amountPaid: session.amount_total / 100,
-                            paidAt: new Date()
+                    // ২. অ্যাপ্লিকেশন আপডেট করা
+                    await applicationsCollection.updateOne(
+                        { _id: new ObjectId(applicationId) },
+                        {
+                            $set: {
+                                paymentStatus: "paid",
+                                transactionId: transactionId,
+                                amountPaid: amountPaid,
+                                paidAt: new Date()
+                            }
                         }
-                    }
-                );
+                    );
 
-                // ২. স্কলারশিপের কাউন্ট বাড়ানো
-                await scholarshipsCollection.updateOne(
-                    { _id: new ObjectId(scholarshipId) },
-                    { $inc: { appliedCount: 1 } }
-                );
+                    // ৩. স্কলারশিপের অ্যাপ্লাইড কাউন্ট বাড়ানো
+                    await scholarshipsCollection.updateOne(
+                        { _id: new ObjectId(scholarshipId) },
+                        { $inc: { appliedCount: 1 } }
+                    );
 
-                // res.send({ success: true });
-                res.send({
-                    success: true,
-                    transactionId,
-                    scholarshipName, // From metadata 
-                    universityName: session.metadata.universityName || "University",
-                    amountPaid
-                });
+                    // ৪. পেমেন্ট কালেকশনে ডাটা পাঠানো (আপনার ডেমো অনুযায়ী)
+                    const paymentRecord = {
+                        scholarshipId: scholarshipId,
+                        scholarshipName: scholarshipName,
+                        userEmail: userEmail, // এটি ফিল্টার করার জন্য খুবই গুরুত্বপূর্ণ
+                        amount: amountPaid,
+                        transactionId: transactionId,
+                        paymentStatus: "paid",
+                        paidAt: new Date()
+                    };
+
+                    await paymentCollection.insertOne(paymentRecord);
+
+                    // ৫. ফ্রন্টএন্ডের জন্য সাকসেস রেসপন্স
+                    res.send({
+                        success: true,
+                        transactionId,
+                        scholarshipName,
+                        universityName: universityName || "University",
+                        amountPaid
+                    });
+                }
+            } catch (error) {
+                console.error("Payment Success Error:", error);
+                res.status(500).send({ success: false, message: "Internal Server Error" });
             }
         });
-
 
         app.get('/payments', VerifyFirebaseToken, async (req, res) => {
             const email = req.query.email;
@@ -579,42 +462,34 @@ async function run() {
 
         // Application >> moderator
 
+        // app.get('/applications', VerifyFirebaseToken, async (req, res) => {
+        //     const result = await applicationsCollection.find().toArray();
+        //     res.send(result);
+        // });
+
+        app.get('/applications', VerifyFirebaseToken, async (req, res) => {
+            const email = req.query.email; // ফ্রন্টএন্ড থেকে পাঠানো ইমেইল
+
+            // সিকিউরিটি চেক: টোকেন যার, সে শুধু তার ইমেইলের ডেটাই পাবে
+            if (req.decoded_email && email !== req.decoded_email) {
+                return res.status(403).send({ message: 'Forbidden access' });
+            }
+
+            let query = {};
+            if (email) {
+                query = { userEmail: email }; // আপনার DB-তে ইমেইল ফিল্ডের নাম যা আছে তা দিন (userEmail/email)
+            }
+
+            const result = await applicationsCollection.find(query).toArray();
+            res.send(result);
+        });
+
         app.get('/moderator/applications', VerifyFirebaseToken, verifyModerator, async (req, res) => {
             // শুধুমাত্র পেমেন্ট করা আবেদনগুলো মডারেটর দেখবে
             const query = { paymentStatus: "paid" };
             const result = await applicationsCollection.find(query).sort({ appliedAt: -1 }).toArray();
             res.send(result);
         });
-
-        // to see all applications
-        // app.get('/moderator/applications', VerifyFirebaseToken, verifyModerator, async (req, res) => {
-        //     const cursor = applicationsCollection.find().sort({ appliedAt: -1 })
-        //     const result = await cursor.toArray();
-        //     res.send(result);
-        // });
-
-        // to update status through application id
-        // app.patch('/moderator/application-status/:id', VerifyFirebaseToken, verifyModerator, async (req, res) => {
-        //     const id = req.params.id;
-        //     const { status } = req.body;
-        //     const result = await applicationsCollection.updateOne(
-        //         { _id: new ObjectId(id) },
-        //         { $set: { status: status } }
-        //     );
-        //     res.send(result);
-        // });
-
-        // // to update feedback through id
-        // app.patch('/moderator/application-feedback/:id', VerifyFirebaseToken, verifyModerator, async (req, res) => {
-        //     const id = req.params.id;
-        //     const { feedback } = req.body;
-        //     const result = await applicationsCollection.updateOne(
-        //         { _id: new ObjectId(id) },
-        //         { $set: { feedback: feedback } }
-        //     );
-        //     res.send(result);
-        // });
-
 
         // ১. অ্যাপ্লিকেশনের স্ট্যাটাস (Processing, Completed, Rejected) আপডেট করার জন্য
         app.patch('/moderator/application-status/:id', VerifyFirebaseToken, verifyModerator, async (req, res) => {
@@ -658,109 +533,172 @@ async function run() {
             }
         });
 
+        app.patch('/applications/:id', VerifyFirebaseToken, async (req, res) => {
+            try {
+                const id = req.params.id;
+                const decodedEmail = req.decoded_email; // from token
+                const { phoneNumber, address } = req.body;
+
+                // cheacking user info ans status is pending
+                const application = await applicationsCollection.findOne({
+                    _id: new ObjectId(id),
+                    userEmail: decodedEmail
+                });
+
+                if (!application) {
+                    return res.status(404).send({ message: "Application not found or unauthorized" });
+                }
+
+                if (application.status !== 'pending') {
+                    return res.status(403).send({ message: "Only pending applications can be edited" });
+                }
+
+                // update data
+                const result = await applicationsCollection.updateOne(
+                    { _id: new ObjectId(id) },
+                    {
+                        $set: {
+                            phoneNumber: phoneNumber,
+                            address: address,
+                            lastModified: new Date() // track
+                        }
+                    }
+                );
+
+                res.send(result);
+            } catch (error) {
+                console.error("Update Application Error:", error);
+                res.status(500).send({ message: "Internal Server Error" });
+            }
+        });
+
+        app.delete('/applications/:id', VerifyFirebaseToken, async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: new ObjectId(id) }
+            const result = await applicationsCollection.deleteOne(query);
+
+            res.send(result);
+        });
 
         // Reviews Related API's
 
-        // app.get('/reviews', async (req, res) => {
-        //     try {
-        //         const { scholarshipId } = req.query;
+        // app.get('/reviews', VerifyFirebaseToken, async (req, res) => {
+        //     const email = req.decoded_email;
+        //     // const user = await usersCollection.findOne({ email });
 
-        //         if (!scholarshipId) {
-        //             return res.status(400).send({ message: "scholarshipId is required" });
-        //         }
-        //         const query = { scholarship_id: scholarshipId };
+        //     // if (!user || (user.role !== "admin" && user.role !== "moderator")) {
+        //     //     return res.status(403).send({ message: "Forbidden" });
+        //     // }
 
-        //         const reviews = await reviewsCollection
-        //             .find(query)
-        //             .sort({ createdAt: -1 })
-        //             .toArray();
+        //     const reviews = await reviewsCollection
+        //         .find()
+        //         .sort({ createdAt: -1 })
+        //         .toArray();
 
-        //         res.send(reviews);
-        //     } catch (error) {
-        //         console.error("Reviews fetch error:", error);
-        //         res.status(500).send({ message: "Failed to fetch reviews" });
-        //     }
+        //     res.send(reviews);
         // });
 
         app.get('/reviews', VerifyFirebaseToken, async (req, res) => {
-            const email = req.decoded_email;
-            // const user = await usersCollection.findOne({ email });
+            const email = req.decoded_email; // টোকেন থেকে আসা ইমেইল
 
-            // if (!user || (user.role !== "admin" && user.role !== "moderator")) {
-            //     return res.status(403).send({ message: "Forbidden" });
-            // }
+            const query = { reviewerEmail: email };
 
             const reviews = await reviewsCollection
-                .find()
+                .find(query)
                 .sort({ createdAt: -1 })
                 .toArray();
 
             res.send(reviews);
         });
 
-
-        // app.post('/reviews', async (req, res) => {
-        //     try {
-        //         const review = req.body;
-        //         review.createdAt = new Date();
-
-        //         const result = await reviewsCollection.insertOne(review);
-        //         res.send(result);
-        //     } catch (error) {
-        //         console.error(error);
-        //         res.status(500).send({ message: "Failed to add review" });
-        //     }
-        // });
+        app.get('/scholarship-reviews/:id', async (req, res) => {
+            const scholarshipId = req.params.id;
+            const result = await reviewsCollection
+                .find({ scholarshipId: scholarshipId })
+                .sort({ createdAt: -1 })
+                .toArray();
+            res.send(result);
+        });
 
         app.post('/reviews', VerifyFirebaseToken, async (req, res) => {
             try {
-                const {
-                    scholarshipId,
-                    scholarshipName,
-                    reviewComment,
-                    rating
-                } = req.body;
+                const { scholarshipId, scholarshipName, reviewComment, rating } = req.body;
+                const Useremail = req.decoded_email;
 
-                const email = req.decoded_email;
-                const user = await usersCollection.findOne({ email });
+                // ইউজার কালেকশন থেকে ইউজারের বর্তমান নাম ও ছবি আনা
+                const user = await usersCollection.findOne({ email: Useremail });
 
-                const reviewDoc = {
-                    scholarshipId,
-                    scholarshipName,
-                    reviewerEmail: email,
-                    reviewerName: user.name,
-                    reviewerPhoto: user.photo,
-                    reviewComment,
-                    rating: rating || null,
-                    createdAt: new Date()
-                };
+                console.log("User found from DB:", user);
 
-                const result = await reviewsCollection.insertOne(reviewDoc);
-                res.send(result);
+                if (user) {
+                    const reviewDoc = {
+                        scholarshipId,
+                        scholarshipName,
+                        reviewerEmail: user.email,
+                        // ডাটাবেজের ফিল্ড অনুযায়ী প্রপার্টিগুলো চেক করুন
+                        reviewerName: user?.displayName || "Anonymous",
+                        reviewerPhoto: user?.photoURL || "",
+                        reviewComment,
+                        rating: rating || null,
+                        createdAt: new Date()
+                    };
+
+                    const result = await reviewsCollection.insertOne(reviewDoc);
+                    res.send(result);
+                }
+                else {
+                    res.send({ message: 'User not found' })
+                }
 
             } catch (error) {
-                console.error(error);
                 res.status(500).send({ message: "Failed to add review" });
             }
         });
 
-        app.delete('/reviews/:id', VerifyFirebaseToken, async (req, res) => {
-            const email = req.decoded_email;
-            const user = await usersCollection.findOne({ email });
-
-            if (!user || (user.role !== "admin" && user.role !== "moderator")) {
-                return res.status(403).send({ message: "Forbidden" });
-            }
-
+        app.patch('/reviews/:id', VerifyFirebaseToken, async (req, res) => {
             const id = req.params.id;
-            const result = await reviewsCollection.deleteOne({ _id: new ObjectId(id) });
+            const email = req.decoded_email;
+            const { rating, reviewComment } = req.body;
+
+            // permit to modify own reviews only
+
+            const filter = { _id: new ObjectId(id), reviewerEmail: email };
+            const updateDoc = {
+                $set: {
+                    rating: rating,
+                    reviewComment: reviewComment,
+                    lastModified: new Date()
+                }
+            };
+
+            const result = await reviewsCollection.updateOne(filter, updateDoc);
+
+            if (result.matchedCount === 0) {
+                return res.status(403).send({ message: "Unauthorized to edit this review" });
+            }
             res.send(result);
         });
 
+        app.delete('/reviews/:id', VerifyFirebaseToken, async (req, res) => {
+            const email = req.decoded_email;
+            const id = req.params.id;
+            const user = await usersCollection.findOne({ email });
 
+            // 1. if admin or moderetor then give access to delete
+            if (user.role === "admin" || user.role === "moderator") {
+                const result = await reviewsCollection.deleteOne({ _id: new ObjectId(id) });
+                return res.send(result);
+            }
 
+            // 2. if user then cheack >> is the review is him or her then permit to delete
+            const query = { _id: new ObjectId(id), reviewerEmail: email };
+            const result = await reviewsCollection.deleteOne(query);
 
-
+            if (result.deletedCount === 0) {
+                return res.status(403).send({ message: "Unauthorized to delete this review" });
+            }
+            res.send(result);
+        });
 
         await client.db("admin").command({ ping: 1 });
         console.log("Pinged your deployment. You successfully connected to MongoDB!");
