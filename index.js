@@ -462,10 +462,7 @@ async function run() {
 
         // Application >> moderator
 
-        // app.get('/applications', VerifyFirebaseToken, async (req, res) => {
-        //     const result = await applicationsCollection.find().toArray();
-        //     res.send(result);
-        // });
+      
 
         app.get('/applications', VerifyFirebaseToken, async (req, res) => {
             const email = req.query.email; // ফ্রন্টএন্ড থেকে পাঠানো ইমেইল
@@ -491,7 +488,7 @@ async function run() {
             res.send(result);
         });
 
-        // ১. অ্যাপ্লিকেশনের স্ট্যাটাস (Processing, Completed, Rejected) আপডেট করার জন্য
+        // 1. Application (Processing, Completed, Rejected) for update
         app.patch('/moderator/application-status/:id', VerifyFirebaseToken, verifyModerator, async (req, res) => {
             const id = req.params.id;
             const { status } = req.body;
@@ -512,7 +509,7 @@ async function run() {
             }
         });
 
-        // ২. অ্যাপ্লিকেশনের ফিডব্যাক আপডেট করার জন্য
+        // 2. Application feedback update
         app.patch('/moderator/application-feedback/:id', VerifyFirebaseToken, verifyModerator, async (req, res) => {
             const id = req.params.id;
             const { feedback } = req.body;
@@ -581,22 +578,6 @@ async function run() {
         });
 
         // Reviews Related API's
-
-        // app.get('/reviews', VerifyFirebaseToken, async (req, res) => {
-        //     const email = req.decoded_email;
-        //     // const user = await usersCollection.findOne({ email });
-
-        //     // if (!user || (user.role !== "admin" && user.role !== "moderator")) {
-        //     //     return res.status(403).send({ message: "Forbidden" });
-        //     // }
-
-        //     const reviews = await reviewsCollection
-        //         .find()
-        //         .sort({ createdAt: -1 })
-        //         .toArray();
-
-        //     res.send(reviews);
-        // });
 
         app.get('/reviews', VerifyFirebaseToken, async (req, res) => {
             const email = req.decoded_email; // টোকেন থেকে আসা ইমেইল
