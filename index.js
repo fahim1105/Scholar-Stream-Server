@@ -59,7 +59,7 @@ const client = new MongoClient(uri, {
 async function run() {
     try {
         // Connect the client to the server	(optional starting in v4.7)
-        await client.connect();
+        // await client.connect();
 
         const db = client.db('scholar_stream_db');
         const scholarshipsCollection = db.collection('scholarships');
@@ -217,10 +217,8 @@ async function run() {
                 if (subject) query.subjectCategory = subject;
                 if (degree) query.degree = degree;
 
-                // প্যাগিনেশনের হিসাব
                 const skip = (parseInt(page) - 1) * parseInt(limit);
 
-                // মোট কয়টি ডেটা আছে তা বের করা (ফ্রন্টএন্ডে বাটন দেখানোর জন্য লাগবে)
                 const totalItems = await scholarshipsCollection.countDocuments(query);
 
                 const result = await scholarshipsCollection.find(query)
@@ -691,7 +689,7 @@ async function run() {
             res.send(result);
         });
 
-        await client.db("admin").command({ ping: 1 });
+        // await client.db("admin").command({ ping: 1 });
         console.log("Pinged your deployment. You successfully connected to MongoDB!");
     } finally {
         // Ensures that the client will close when you finish/error
