@@ -462,7 +462,7 @@ async function run() {
 
         // Application >> moderator
 
-      
+
 
         app.get('/applications', VerifyFirebaseToken, async (req, res) => {
             const email = req.query.email; // ফ্রন্টএন্ড থেকে পাঠানো ইমেইল
@@ -579,10 +579,31 @@ async function run() {
 
         // Reviews Related API's
 
-        app.get('/reviews', VerifyFirebaseToken, async (req, res) => {
-            const email = req.decoded_email; // টোকেন থেকে আসা ইমেইল
+        // app.get('/reviews', VerifyFirebaseToken, async (req, res) => {
+        //     const email = req.decoded_email; // টোকেন থেকে আসা ইমেইল
 
-            const query = { reviewerEmail: email };
+        //     const query = { reviewerEmail: email };
+
+        //     const reviews = await reviewsCollection
+        //         .find(query)
+        //         .sort({ createdAt: -1 })
+        //         .toArray();
+
+        //     res.send(reviews);
+        // });
+        app.get('/reviews', VerifyFirebaseToken, async (req, res) => {
+            const email = req.decoded_email; // টোকেন থেকে পাওয়া ইমেইল
+
+            // 1. first find the role from user collection
+            const user = await usersCollection.findOne({ email: email });
+            const userRole = user?.role;
+
+            let query = {};
+
+            // 2. if admin or moderator are exist then filter by only his or her email
+            if (userRole !== 'admin' && userRole !== 'moderator') {
+                query = { reviewerEmail: email };
+            }
 
             const reviews = await reviewsCollection
                 .find(query)
