@@ -190,10 +190,28 @@ async function run() {
         });
 
         app.get('/users', VerifyFirebaseToken, verifyAdmin, async (req, res) => {
-            const result = await usersCollection.find().toArray();
-            res.send(result);
+            try {
+                const page = parseInt(req.query.page) || 1;
+                const limit = parseInt(req.query.limit) || 20;
+                const skip = (page - 1) * limit;
+
+                const totalItems = await usersCollection.countDocuments();
+                const result = await usersCollection.find()
+                    .skip(skip)
+                    .limit(limit)
+                    .toArray();
+
+                res.send({
+                    users: result,
+                    totalItems,
+                    totalPages: Math.ceil(totalItems / limit),
+                    currentPage: page
+                });
+            } catch (error) {
+                res.status(500).send({ message: "Failed to load users" });
+            }
         });
-        //
+
         app.get('/users/:email/role', VerifyFirebaseToken, async (req, res) => {
             const email = req.params.email;
             const query = { email: email };
@@ -440,7 +458,6 @@ async function run() {
 
 
         // Payment Related API's
-        // no 2
 
         app.post('/create-checkout-session', VerifyFirebaseToken, async (req, res) => {
             try {
@@ -510,10 +527,6 @@ async function run() {
             }
         });
 
-
-
-        // no 3
-
         app.patch('/scholarship-payment-success', async (req, res) => {
             try {
                 const sessionId = req.query.session_id;
@@ -572,23 +585,56 @@ async function run() {
             }
         });
 
+        // app.get('/payments', VerifyFirebaseToken, async (req, res) => {
+        //     const email = req.query.email;
+        //     const query = {};
+        //     // console.log('Header &&', req.headers)
+        //     if (email) {
+        //         query.userEmail = email;
+
+        //         // Check email address
+
+        //         if (email !== req.decoded_email) {
+        //             return res.status(403).send({ message: "Forbidden access" })
+        //         }
+        //     }
+        //     const cursor = paymentCollection.find(query).sort({ paidAt: -1 });
+        //     const result = await cursor.toArray();
+        //     res.send(result)
+        // })
+
         app.get('/payments', VerifyFirebaseToken, async (req, res) => {
-            const email = req.query.email;
-            const query = {};
-            // console.log('Header &&', req.headers)
-            if (email) {
-                query.userEmail = email;
+            try {
+                const email = req.query.email;
+                const page = parseInt(req.query.page) || 1;
+                const limit = parseInt(req.query.limit) || 20;
+                const skip = (page - 1) * limit;
 
-                // Check email address
-
-                if (email !== req.decoded_email) {
-                    return res.status(403).send({ message: "Forbidden access" })
+                const query = {};
+                if (email) {
+                    query.userEmail = email;
+                    if (email !== req.decoded_email) {
+                        return res.status(403).send({ message: "Forbidden access" });
+                    }
                 }
+
+                const totalItems = await paymentCollection.countDocuments(query);
+                const result = await paymentCollection.find(query)
+                    .sort({ paidAt: -1 })
+                    .skip(skip)
+                    .limit(limit)
+                    .toArray();
+
+                res.send({
+                    payments: result,
+                    totalItems,
+                    totalPages: Math.ceil(totalItems / limit),
+                    currentPage: page
+                });
+            } catch (error) {
+                res.status(500).send({ message: "Internal server error" });
             }
-            const cursor = paymentCollection.find(query).sort({ paidAt: -1 });
-            const result = await cursor.toArray();
-            res.send(result)
-        })
+        });
 
         app.delete('/payments', async (req, res) => {
             // const id = req.params.id;
@@ -608,30 +654,68 @@ async function run() {
 
         // Application >> moderator
 
-
-
         app.get('/applications', VerifyFirebaseToken, async (req, res) => {
-            const email = req.query.email; // ফ্রন্টএন্ড থেকে পাঠানো ইমেইল
+            try {
+                const email = req.query.email;
+                const page = parseInt(req.query.page) || 1;
+                const limit = parseInt(req.query.limit) || 20;
+                const skip = (page - 1) * limit;
 
-            // সিকিউরিটি চেক: টোকেন যার, সে শুধু তার ইমেইলের ডেটাই পাবে
-            if (req.decoded_email && email !== req.decoded_email) {
-                return res.status(403).send({ message: 'Forbidden access' });
+                // Security Check
+                if (req.decoded_email && email !== req.decoded_email) {
+                    return res.status(403).send({ message: 'Forbidden access' });
+                }
+
+                let query = {};
+                if (email) {
+                    query = { userEmail: email };
+                }
+
+                const totalItems = await applicationsCollection.countDocuments(query);
+                const result = await applicationsCollection.find(query)
+                    .skip(skip)
+                    .limit(limit)
+                    .toArray();
+
+                res.send({
+                    applications: result,
+                    totalItems,
+                    totalPages: Math.ceil(totalItems / limit),
+                    currentPage: page
+                });
+            } catch (error) {
+                res.status(500).send({ message: "Failed to load applications" });
             }
-
-            let query = {};
-            if (email) {
-                query = { userEmail: email }; // আপনার DB-তে ইমেইল ফিল্ডের নাম যা আছে তা দিন (userEmail/email)
-            }
-
-            const result = await applicationsCollection.find(query).toArray();
-            res.send(result);
         });
 
+
         app.get('/moderator/applications', VerifyFirebaseToken, verifyModerator, async (req, res) => {
-            // শুধুমাত্র পেমেন্ট করা আবেদনগুলো মডারেটর দেখবে
-            const query = { paymentStatus: "paid" };
-            const result = await applicationsCollection.find(query).sort({ appliedAt: -1 }).toArray();
-            res.send(result);
+            try {
+                const page = parseInt(req.query.page) || 1;
+                const limit = parseInt(req.query.limit) || 20;
+                const skip = (page - 1) * limit;
+
+                const query = { paymentStatus: "paid" };
+
+                // মোট কতটি আবেদন আছে তা গণনা করা
+                const totalItems = await applicationsCollection.countDocuments(query);
+
+                const result = await applicationsCollection
+                    .find(query)
+                    .sort({ appliedAt: -1 })
+                    .skip(skip)
+                    .limit(limit)
+                    .toArray();
+
+                res.send({
+                    applications: result,
+                    totalItems,
+                    totalPages: Math.ceil(totalItems / limit),
+                    currentPage: page
+                });
+            } catch (error) {
+                res.status(500).send({ message: "Internal server error" });
+            }
         });
 
         // 1. Application (Processing, Completed, Rejected) for update
@@ -725,32 +809,66 @@ async function run() {
 
         // Reviews Related API's
 
-        app.get('/all-reviews', VerifyFirebaseToken, async (req, res) => {
-            const email = req.decoded_email;
-            const user = await usersCollection.findOne({ email });
+        app.get('/all-reviews', VerifyFirebaseToken, verifyModerator, async (req, res) => {
+            try {
+                const page = parseInt(req.query.page) || 1;
+                const limit = parseInt(req.query.limit) || 20;
+                const skip = (page - 1) * limit;
 
-            if (user?.role === 'moderator') {
+                // মোট কতটি রিভিউ আছে তা চেক করা
+                const totalItems = await reviewsCollection.countDocuments();
+
                 const result = await reviewsCollection
                     .find()
                     .sort({ createdAt: -1 })
+                    .skip(skip)
+                    .limit(limit)
                     .toArray();
-                res.send(result);
-            } else {
-                res.status(403).send({ message: "Forbidden Access" });
+
+                res.send({
+                    reviews: result,
+                    totalItems,
+                    totalPages: Math.ceil(totalItems / limit),
+                    currentPage: page
+                });
+            } catch (error) {
+                res.status(500).send({ message: "Internal server error" });
             }
         });
+
         app.get('/reviews', VerifyFirebaseToken, async (req, res) => {
-            const email = req.decoded_email; // টোকেন থেকে পাওয়া ইউজারের ইমেইল
+            try {
+                const email = req.decoded_email; // টোকেন থেকে পাওয়া ইমেইল
 
-            // রোল চেক করার দরকার নেই, কারণ সবাই শুধু নিজের রিভিউ দেখবে
-            let query = { reviewerEmail: email };
+                // ১. কুয়েরি প্যারামিটার থেকে পেজ এবং লিমিট নেওয়া
+                const page = parseInt(req.query.page) || 1; // ডিফল্ট পেজ ১
+                const limit = parseInt(req.query.limit) || 20; // প্রতি পেজে ২০টি ডেটা
+                const skip = (page - 1) * limit; // কতগুলো ডেটা বাদ দিয়ে শুরু করবে
 
-            const reviews = await reviewsCollection
-                .find(query)
-                .sort({ createdAt: -1 })
-                .toArray();
+                let query = { reviewerEmail: email };
 
-            res.send(reviews);
+                // ২. মোট কতগুলো রিভিউ আছে তা গণনা করা (প্যাগিনেশন ক্যালকুলেশনের জন্য)
+                const totalItems = await reviewsCollection.countDocuments(query);
+
+                // ৩. নির্দিষ্ট পেজের ডেটাগুলো খুঁজে বের করা
+                const reviews = await reviewsCollection
+                    .find(query)
+                    .sort({ createdAt: -1 })
+                    .skip(skip)   // আগের পেজের ডেটাগুলো স্কিপ করবে
+                    .limit(limit) // মাত্র ২০টি ডেটা নিবে
+                    .toArray();
+
+                // ৪. ফ্রন্টএন্ডে অবজেক্ট আকারে ডেটা পাঠানো
+                res.send({
+                    reviews,      // বর্তমান পেজের রিভিউ লিস্ট
+                    totalItems,   // মোট রিভিউ সংখ্যা
+                    totalPages: Math.ceil(totalItems / limit), // মোট কতটি পেজ হবে
+                    currentPage: page
+                });
+
+            } catch (error) {
+                res.status(500).send({ message: "Internal server error" });
+            }
         });
 
         app.get('/scholarship-reviews/:id', async (req, res) => {
