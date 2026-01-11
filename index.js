@@ -67,6 +67,8 @@ async function run() {
         const usersCollection = db.collection('users');
         const paymentCollection = db.collection('payments');
         const applicationsCollection = db.collection('applications');
+        const BlogsCollection = db.collection("blogs");
+        const TopersCollection = db.collection("toppers");
 
         // middleWare with database access >> admin before allowing admin activity
         // Must be used after VerifyFirebaseToken middleWare
@@ -95,6 +97,79 @@ async function run() {
 
         // API's here
 
+        // Topers related APIs
+
+        app.post('/toppers', VerifyFirebaseToken, verifyModerator, async (req, res) => {
+            const blog = req.body;
+            blog.createdAt = new Date();
+            const result = await TopersCollection.insertOne(blog);
+            res.send(result);
+        });
+
+        app.get('/toppers', async (req, res) => {
+            const result = await TopersCollection.find().sort({ createdAt: -1 }).toArray();
+            res.send(result);
+        });
+
+        app.delete('/toppers/:id', VerifyFirebaseToken, verifyModerator, async (req, res) => {
+            const id = req.params.id;
+            const result = await TopersCollection.deleteOne({ _id: new ObjectId(id) });
+            res.send(result);
+        });
+
+        app.patch('/toppers/:id', VerifyFirebaseToken, verifyModerator, async (req, res) => {
+            const id = req.params.id;
+            const filter = { _id: new ObjectId(id) };
+            const updatedDoc = {
+                $set: {
+                    name: req.body.name,          // title এর বদলে name
+                    university: req.body.university, // category এর বদলে university
+                    scholarship: req.body.scholarship,
+                    batch: req.body.batch,
+                    image: req.body.image,
+                    updatedAt: new Date()
+                }
+            };
+            const result = await TopersCollection.updateOne(filter, updatedDoc);
+            res.send(result);
+        });
+
+        // Blog Related APIS
+
+        app.post('/blogs', VerifyFirebaseToken, verifyAdmin, async (req, res) => {
+            const blog = req.body;
+            blog.createdAt = new Date();
+            const result = await BlogsCollection.insertOne(blog);
+            res.send(result);
+        });
+
+        app.get('/blogs', async (req, res) => {
+            const result = await BlogsCollection.find().sort({ createdAt: -1 }).toArray();
+            res.send(result);
+        });
+
+        app.delete('/blogs/:id', VerifyFirebaseToken, verifyAdmin, async (req, res) => {
+            const id = req.params.id;
+            const result = await BlogsCollection.deleteOne({ _id: new ObjectId(id) });
+            res.send(result);
+        });
+
+        app.patch('/blogs/:id', VerifyFirebaseToken, verifyAdmin, async (req, res) => {
+            const id = req.params.id;
+            const filter = { _id: new ObjectId(id) };
+            const updatedDoc = {
+                $set: {
+                    title: req.body.title,
+                    category: req.body.category,
+                    image: req.body.image,
+                    description: req.body.description,
+                    updatedAt: new Date() // Tracking update time
+                }
+            };
+            const result = await BlogsCollection.updateOne(filter, updatedDoc);
+            res.send(result);
+        });
+
         // User Related API's
 
         app.post('/users', async (req, res) => {
@@ -118,7 +193,7 @@ async function run() {
             const result = await usersCollection.find().toArray();
             res.send(result);
         });
-
+        //
         app.get('/users/:email/role', VerifyFirebaseToken, async (req, res) => {
             const email = req.params.email;
             const query = { email: email };
@@ -155,16 +230,34 @@ async function run() {
             res.send(result);
         });
 
-        // Analytics related api
         app.get('/admin/analytics', VerifyFirebaseToken, verifyAdmin, async (req, res) => {
+            // ১. টোটাল কাউন্টসমূহ
             const totalUsers = await usersCollection.estimatedDocumentCount();
             const totalScholarships = await scholarshipsCollection.estimatedDocumentCount();
 
+            // ২. পাই চার্টের জন্য ইউজার রোল ডিস্ট্রিবিউশন
+            const userRoleStats = await usersCollection.aggregate([
+                {
+                    $group: {
+                        _id: "$role",
+                        value: { $sum: 1 }
+                    }
+                },
+                {
+                    $project: {
+                        _id: 0,
+                        name: "$_id", // যেমন: admin, moderator, student
+                        value: 1
+                    }
+                }
+            ]).toArray();
+
+            // ৩. টোটাল পেমেন্ট ক্যালকুলেশন
             const payments = await paymentCollection.aggregate([
                 {
                     $group: {
                         _id: null,
-                        totalFees: { $sum: "$amount" } // ✅ correct field
+                        totalFees: { $sum: "$amount" }
                     }
                 }
             ]).toArray();
@@ -172,18 +265,17 @@ async function run() {
             res.send({
                 totalUsers,
                 totalScholarships,
-                totalFees: payments[0]?.totalFees || 0
+                totalFees: payments[0]?.totalFees || 0,
+                userRoleStats // এটি ফ্রন্টএন্ডে পাই চার্টে যাবে
             });
         });
 
-
-        // GET /admin/application-stats
         app.get('/admin/application-stats', VerifyFirebaseToken, verifyAdmin, async (req, res) => {
             const stats = await scholarshipsCollection.aggregate([
                 {
                     $group: {
                         _id: "$scholarshipCategory",
-                        applications: { $sum: "$appliedCount" } // ✅ real application count
+                        applications: { $sum: "$appliedCount" }
                     }
                 },
                 {
@@ -192,10 +284,66 @@ async function run() {
                         category: "$_id",
                         applications: 1
                     }
-                }
+                },
+                { $sort: { applications: -1 } } // বেশি অ্যাপ্লিকেশনগুলো আগে আসবে
             ]).toArray();
 
             res.send(stats);
+        });
+
+
+        // User Overview API for Student Dashboard
+        app.get('/user-overview', VerifyFirebaseToken, async (req, res) => {
+            const email = req.decoded_email;
+
+            try {
+                // ১. ইউজারের বেসিক ইনফো (রোল, নাম, ছবি)
+                const user = await usersCollection.findOne({ email });
+
+                // ২. ইউজার কতগুলো স্কলারশিপে অ্যাপ্লাই করেছে (পেমেন্ট সাকসেসফুল গুলো)
+                const appliedCount = await applicationsCollection.countDocuments({
+                    userEmail: email,
+                    paymentStatus: "paid"
+                });
+
+                // ৩. ইউজার টোটাল কত টাকা খরচ করেছে
+                const payments = await paymentCollection.aggregate([
+                    { $match: { userEmail: email } },
+                    {
+                        $group: {
+                            _id: null,
+                            totalSpent: { $sum: "$amount" }
+                        }
+                    }
+                ]).toArray();
+
+                // ৪. ইউজার কতগুলো রিভিউ দিয়েছে
+                const reviewsCount = await reviewsCollection.countDocuments({
+                    reviewerEmail: email
+                });
+
+                // ৫. রিসেন্ট কিছু অ্যাপ্লিকেশন (সর্বশেষ ৩টি)
+                const recentApplications = await applicationsCollection.find({
+                    userEmail: email,
+                    paymentStatus: "paid"
+                })
+                    .sort({ appliedAt: -1 })
+                    .limit(3)
+                    .toArray();
+
+                res.send({
+                    userName: user?.displayName || "User",
+                    userPhoto: user?.photoURL,
+                    totalApplied: appliedCount,
+                    totalSpent: payments[0]?.totalSpent || 0,
+                    totalReviews: reviewsCount,
+                    recentApplications
+                });
+
+            } catch (error) {
+                console.error("Overview Error:", error);
+                res.status(500).send({ message: "Failed to fetch overview data" });
+            }
         });
 
 
@@ -203,7 +351,7 @@ async function run() {
 
         app.get('/scholarships', async (req, res) => {
             try {
-                const { search, category, subject, degree, page = 1, limit = 17 } = req.query;
+                const { search, category, subject, degree, page = 1, limit = 20 } = req.query;
 
                 const query = {};
                 if (search) {
@@ -577,20 +725,25 @@ async function run() {
 
         // Reviews Related API's
 
-     
-        app.get('/reviews', VerifyFirebaseToken, async (req, res) => {
-            const email = req.decoded_email; // টোকেন থেকে পাওয়া ইমেইল
+        app.get('/all-reviews', VerifyFirebaseToken, async (req, res) => {
+            const email = req.decoded_email;
+            const user = await usersCollection.findOne({ email });
 
-            // 1. first find the role from user collection
-            const user = await usersCollection.findOne({ email: email });
-            const userRole = user?.role;
-
-            let query = {};
-
-            // 2. if admin or moderator are exist then filter by only his or her email
-            if (userRole !== 'admin' && userRole !== 'moderator') {
-                query = { reviewerEmail: email };
+            if (user?.role === 'moderator') {
+                const result = await reviewsCollection
+                    .find()
+                    .sort({ createdAt: -1 })
+                    .toArray();
+                res.send(result);
+            } else {
+                res.status(403).send({ message: "Forbidden Access" });
             }
+        });
+        app.get('/reviews', VerifyFirebaseToken, async (req, res) => {
+            const email = req.decoded_email; // টোকেন থেকে পাওয়া ইউজারের ইমেইল
+
+            // রোল চেক করার দরকার নেই, কারণ সবাই শুধু নিজের রিভিউ দেখবে
+            let query = { reviewerEmail: email };
 
             const reviews = await reviewsCollection
                 .find(query)
