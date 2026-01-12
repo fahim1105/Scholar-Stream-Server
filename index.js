@@ -702,7 +702,7 @@ async function run() {
 
                 const result = await applicationsCollection
                     .find(query)
-                    .sort({ appliedAt: -1 })
+                    .sort({ appliedAt: 1 })
                     .skip(skip)
                     .limit(limit)
                     .toArray();
