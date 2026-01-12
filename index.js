@@ -596,6 +596,7 @@ async function run() {
                     metadata: {
                         applicationId: applicationId.toString(),
                         scholarshipId: scholarshipId.toString(),
+                        scholarshipName: scholarship.scholarshipName,
                         userEmail: userEmail || req.decoded_email
                     },
                     success_url: `${process.env.SITE_DOMAIN}/dashboard/payment-success?session_id={CHECKOUT_SESSION_ID}&app_id=${applicationId}`,
