@@ -434,7 +434,7 @@ async function run() {
             }
         });
 
-        app.delete("/scholarships/:id", async (req, res) => {
+        app.delete("/scholarships/:id",VerifyFirebaseToken,verifyAdmin, async (req, res) => {
             const id = req.params.id;
 
             const result = await scholarshipsCollection.deleteOne({
@@ -444,7 +444,7 @@ async function run() {
             res.send(result);
         });
 
-        app.patch("/scholarships/:id", async (req, res) => {
+        app.patch("/scholarships/:id",VerifyFirebaseToken,verifyAdmin, async (req, res) => {
             const id = req.params.id;
             const updatedData = req.body;
 
@@ -459,11 +459,79 @@ async function run() {
 
         // Payment Related API's
 
+        // app.post('/create-checkout-session', VerifyFirebaseToken, async (req, res) => {
+        //     try {
+        //         const { scholarshipId, userName, userEmail, universityName, scholarshipName } = req.body;
+
+        //         // ১. স্কলারশিপের তথ্য চেক করা
+        //         const scholarship = await scholarshipsCollection.findOne({
+        //             _id: new ObjectId(scholarshipId)
+        //         });
+
+        //         if (!scholarship) {
+        //             return res.status(404).send({ message: "Scholarship not found" });
+        //         }
+
+        //         // ২. ক্লিক করার সাথে সাথে applicationsCollection-এ একটি 'pending' এন্ট্রি তৈরি
+        //         const initialApplication = {
+        //             scholarshipId: new ObjectId(scholarshipId),
+        //             scholarshipName: scholarship.scholarshipName,
+        //             universityName: scholarship.universityName,
+        //             userName: userName, // ফ্রন্টএন্ড থেকে পাঠানো
+        //             userEmail: userEmail || req.decoded_email, // সেফটির জন্য দুইটাই চেক করা
+        //             amountPaid: 0,
+        //             paymentStatus: "pending", // পেমেন্ট না হওয়া পর্যন্ত এটি পেন্ডিং থাকবে
+        //             status: "pending", // মডারেটর স্ট্যাটাস
+        //             appliedAt: new Date(),
+        //             feedback: ""
+        //         };
+
+        //         const applicationResult = await applicationsCollection.insertOne(initialApplication);
+        //         const applicationId = applicationResult.insertedId;
+
+        //         // ৩. স্ট্রাইপ সেশন তৈরি
+        //         const amount = (scholarship.applicationFees + scholarship.serviceCharge) * 100;
+
+        //         const session = await stripe.checkout.sessions.create({
+        //             payment_method_types: ['card'],
+        //             line_items: [
+        //                 {
+        //                     price_data: {
+        //                         currency: 'usd',
+        //                         unit_amount: amount,
+        //                         product_data: {
+        //                             name: scholarship.scholarshipName,
+        //                             description: scholarship.universityName
+        //                         }
+        //                     },
+        //                     quantity: 1
+        //                 }
+        //             ],
+        //             customer_email: req.decoded_email,
+        //             mode: 'payment',
+        //             metadata: {
+        //                 applicationId: applicationId.toString(), // পেমেন্ট সাকসেস রুটে এটি লাগবে
+        //                 scholarshipId: scholarshipId.toString(),
+        //                 scholarshipName: scholarship.scholarshipName,
+        //                 universityName: scholarship.universityName, // এটি যোগ করা হয়েছে
+        //                 userEmail: userEmail || req.decoded_email    // এটি যোগ করা হয়েছে
+        //             },
+        //             success_url: `${process.env.SITE_DOMAIN}/dashboard/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+        //             cancel_url: `${process.env.SITE_DOMAIN}/dashboard/payment-cancelled`
+        //         });
+
+        //         res.send({ url: session.url });
+        //     } catch (error) {
+        //         console.error("Stripe Session Error:", error);
+        //         res.status(500).send({ message: "Internal Server Error" });
+        //     }
+        // });
+
         app.post('/create-checkout-session', VerifyFirebaseToken, async (req, res) => {
             try {
-                const { scholarshipId, userName, userEmail, universityName, scholarshipName } = req.body;
+                const { scholarshipId, userName, userEmail } = req.body;
 
-                // ১. স্কলারশিপের তথ্য চেক করা
+                // ১. ডাটাবেজ থেকে স্কলারশিপের লেটেস্ট তথ্য আনা
                 const scholarship = await scholarshipsCollection.findOne({
                     _id: new ObjectId(scholarshipId)
                 });
@@ -472,16 +540,33 @@ async function run() {
                     return res.status(404).send({ message: "Scholarship not found" });
                 }
 
-                // ২. ক্লিক করার সাথে সাথে applicationsCollection-এ একটি 'pending' এন্ট্রি তৈরি
+                // ২. অ্যামাউন্ট ক্যালকুলেশন (String concatenation ফিক্স করা হয়েছে)
+                // parseFloat নিশ্চিত করে যে "20" + "10" যেন "2010" না হয়ে ৩০ হয়
+                const appFee = parseFloat(scholarship.applicationFees) || 0;
+                const serviceFee = parseFloat(scholarship.serviceCharge) || 0;
+                const totalAmount = appFee + serviceFee;
+
+                // স্ট্রাইপ সেন্ট (Cents) হিসেবে টাকা নেয়, তাই ১০০ দিয়ে গুণ
+                const amountInCents = Math.round(totalAmount * 100);
+
+                // ৩. applicationsCollection-এ পেমেন্ট শুরুর আগেই একটি রেকর্ড তৈরি (সব ইনফরমেশন সহ)
                 const initialApplication = {
                     scholarshipId: new ObjectId(scholarshipId),
                     scholarshipName: scholarship.scholarshipName,
                     universityName: scholarship.universityName,
-                    userName: userName, // ফ্রন্টএন্ড থেকে পাঠানো
-                    userEmail: userEmail || req.decoded_email, // সেফটির জন্য দুইটাই চেক করা
-                    amountPaid: 0,
-                    paymentStatus: "pending", // পেমেন্ট না হওয়া পর্যন্ত এটি পেন্ডিং থাকবে
-                    status: "pending", // মডারেটর স্ট্যাটাস
+                    universityImage: scholarship.universityImage, // ছবি মিস হবে না
+                    subjectCategory: scholarship.subjectCategory,
+                    degree: scholarship.degree,
+                    universityCity: scholarship.universityCity,
+                    universityCountry: scholarship.universityCountry,
+                    scholarshipCategory: scholarship.scholarshipCategory,
+                    userName: userName,
+                    userEmail: userEmail || req.decoded_email,
+                    applicationFees: appFee,
+                    serviceCharge: serviceFee,
+                    amountPaid: totalAmount,
+                    paymentStatus: "pending",
+                    status: "pending",
                     appliedAt: new Date(),
                     feedback: ""
                 };
@@ -489,19 +574,18 @@ async function run() {
                 const applicationResult = await applicationsCollection.insertOne(initialApplication);
                 const applicationId = applicationResult.insertedId;
 
-                // ৩. স্ট্রাইপ সেশন তৈরি
-                const amount = (scholarship.applicationFees + scholarship.serviceCharge) * 100;
-
+                // ৪. স্ট্রাইপ সেশন তৈরি
                 const session = await stripe.checkout.sessions.create({
                     payment_method_types: ['card'],
                     line_items: [
                         {
                             price_data: {
                                 currency: 'usd',
-                                unit_amount: amount,
+                                unit_amount: amountInCents, // সংশোধিত সঠিক অ্যামাউন্ট
                                 product_data: {
                                     name: scholarship.scholarshipName,
-                                    description: scholarship.universityName
+                                    description: `University: ${scholarship.universityName}`,
+                                    images: [scholarship.universityImage].filter(Boolean) // যদি ইমেজ থাকে
                                 }
                             },
                             quantity: 1
@@ -510,13 +594,11 @@ async function run() {
                     customer_email: req.decoded_email,
                     mode: 'payment',
                     metadata: {
-                        applicationId: applicationId.toString(), // পেমেন্ট সাকসেস রুটে এটি লাগবে
+                        applicationId: applicationId.toString(),
                         scholarshipId: scholarshipId.toString(),
-                        scholarshipName: scholarship.scholarshipName,
-                        universityName: scholarship.universityName, // এটি যোগ করা হয়েছে
-                        userEmail: userEmail || req.decoded_email    // এটি যোগ করা হয়েছে
+                        userEmail: userEmail || req.decoded_email
                     },
-                    success_url: `${process.env.SITE_DOMAIN}/dashboard/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+                    success_url: `${process.env.SITE_DOMAIN}/dashboard/payment-success?session_id={CHECKOUT_SESSION_ID}&app_id=${applicationId}`,
                     cancel_url: `${process.env.SITE_DOMAIN}/dashboard/payment-cancelled`
                 });
 
@@ -584,24 +666,6 @@ async function run() {
                 res.status(500).send({ success: false, message: "Internal Server Error" });
             }
         });
-
-        // app.get('/payments', VerifyFirebaseToken, async (req, res) => {
-        //     const email = req.query.email;
-        //     const query = {};
-        //     // console.log('Header &&', req.headers)
-        //     if (email) {
-        //         query.userEmail = email;
-
-        //         // Check email address
-
-        //         if (email !== req.decoded_email) {
-        //             return res.status(403).send({ message: "Forbidden access" })
-        //         }
-        //     }
-        //     const cursor = paymentCollection.find(query).sort({ paidAt: -1 });
-        //     const result = await cursor.toArray();
-        //     res.send(result)
-        // })
 
         app.get('/payments', VerifyFirebaseToken, async (req, res) => {
             try {
